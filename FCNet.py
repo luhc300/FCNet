@@ -6,12 +6,12 @@ import numpy as np
 
 
 def weight_variable(shape,name):
-    initial = tf.truncated_normal(shape, stddev=0.01)
+    initial = tf.truncated_normal(shape, stddev=1e-1)
     return tf.Variable(initial,name=name)
 
 
 def bias_variable(shape,name):
-    initial = tf.constant(0.1, shape=shape)
+    initial = tf.constant(1e-2, shape=shape)
     return tf.Variable(initial,name=name)
 
 
@@ -26,6 +26,7 @@ def L_variable(name,shape=None,init=None):
 def get_batch(X,y,batch_size):
     N = X.shape[0]
     mask = np.random.choice(N,batch_size)
+    #print(mask)
     XX = X[mask]
     yy = y[mask]
     return XX, yy
@@ -37,7 +38,7 @@ class FCNet:
         self.hidden_dims = hidden_dims
         self.output_dim = output_dim
         self.num_layers = len(hidden_dims) + 1
-        self._prepare()
+
 
     def _prepare(self):
         self.params_W = []
@@ -52,27 +53,34 @@ class FCNet:
             self.params_W.append(W)
             self.params_b.append(b)
 
-    def train(self, X, y, reg=1e-4, learning_rate=1e-4, batch_size=100):
+    def train(self, X, y, reg=1e-4, learning_rate=1e-7, batch_size=100):
+        self._prepare()
         layer_results = []
         X_input = tf.placeholder("float",shape = [None,self.input_dim])
         y_input = tf.placeholder("float",shape = [None,self.output_dim])
-        X0 = X_input
+        lr = tf.placeholder("float")
+        X0 = tf.convert_to_tensor(X_input)
         layer_results.append(X0)
         for i in range(self.num_layers):
-            X_output = tf.nn.relu(tf.matmul(layer_results[i], weight) + bias)
-        update = tf.assign(X_stage,X_output,validate_shape=False)
-        y_result = tf.nn.softmax(X_stage)
-        cross_entropy = -tf.reduce_sum(y * tf.log(y_result), name='cross_entropy')
-        train_step = tf.train.AdamOptimizer(3e-5).minimize(cross_entropy)
+            X_output = tf.nn.relu(tf.matmul(layer_results[i], self.params_W[i]) + self.params_b[i])
+            layer_results.append(X_output)
+        y_result = tf.nn.softmax(layer_results[self.num_layers])
+        cross_entropy = -tf.reduce_sum(y_input * tf.log(y_result), name='cross_entropy')
+        train_step = tf.train.AdamOptimizer(lr).minimize(cross_entropy)
+        correct_prediction = tf.equal(tf.argmax(y_result, 1), tf.argmax(y_input, 1))
+        accuracy = tf.reduce_mean(tf.cast(correct_prediction, "float"), name='accuracy')
+        cur_learning_rate = learning_rate
         with tf.Session() as sess:
-            sess.run(X_stage)
+            sess.run(tf.initialize_all_variables())
             for j in range(20000):
                 X_batch, y_batch = get_batch(X, y, batch_size)
-                X_stage = X_variable('X_stage',init=X_batch)
-                print(sess.run(X_stage))
-                for i in range(self.num_layers):
-                    sess.run(update,feed_dict={X_input: X_stage, weight: self.params_W[i], bias: self.params_b[i]})
-                sess.run(train_step)
                 if j % 100 == 0:
-                    print(sess.run(cross_entropy))
+                    print(sess.run(cross_entropy,feed_dict={ X_input: X_batch, y_input:y_batch }))
+                    print(sess.run(accuracy,feed_dict={ X_input: X_batch, y_input:y_batch }))
+                    #print(sess.run(self.params_W[0]))
+                    #print(sess.run(layer_results, feed_dict={X_input: X_batch, y_input: y_batch}))
+                    cur_learning_rate = cur_learning_rate * 0.95
+                sess.run(train_step,feed_dict={ X_input: X_batch, y_input:y_batch ,lr: cur_learning_rate*0.95})
+
+
 
